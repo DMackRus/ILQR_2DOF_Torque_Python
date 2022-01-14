@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31729.503
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "ILQR_2DOF_Torque_Python", "ILQR_2DOF_Torque_Python.pyproj", "{BC813F13-1722-458D-9EE7-3F2E7FCCF7C1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BC813F13-1722-458D-9EE7-3F2E7FCCF7C1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BC813F13-1722-458D-9EE7-3F2E7FCCF7C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {FA9DF4E9-1973-44AE-919B-50A348569738}
+	EndGlobalSection
+EndGlobal
