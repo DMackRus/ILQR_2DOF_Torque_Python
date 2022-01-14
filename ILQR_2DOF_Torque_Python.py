@@ -19,11 +19,6 @@ gravity = 0.01
 j1 = 1 
 j2 = 1
 
-K1 = 0
-K2 = 0
-K3 = 0
-K4 = 0
-
 runTime = 5
 numIterations = int(runTime / dt)
 lamb = 1
@@ -51,12 +46,7 @@ def main():
     global origin
     global desiredState
     global canvas
-    global K1, K2, K3, K4
     currentIteration = 0
-    K1 = ((1/3. * m1 + m2) * l1**2. + 1/3. * m2 * l2**2.)
-    K2 = m2 * l1 * l2
-    K3 = 1/3. * m2 * l2**2.
-    K4 = 1/2. * m2 * l1 * l2
     U = initControls(numIterations)
     # State = [theta1, theta2, theta1dot, theta2dot]
     # 4x1 Matrix
@@ -71,13 +61,6 @@ def main():
     testX1 = np.array([3*PI/4, PI])
     anglediff = calcAngleDiffConstrained(testX1, testX0)
     a = 1
-
-    #testAngle = (-10 * PI)
-    #testAngle = constrainAngleBetween0and2PI(testAngle)
-
-    #testAngle = (-10*PI - (PI/2))
-    #testAngle = constrainAngleBetween0and2PI(testAngle)
-    #a=1
 
     #while(currentIteration < numIterations):
     #    draw(canvas, [l1, l2], X[currentIteration], origin,desiredState)
