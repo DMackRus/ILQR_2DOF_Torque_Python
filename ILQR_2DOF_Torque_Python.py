@@ -8,7 +8,7 @@ PI = 3.14159265
 canvas_width = 500
 canvas_height = 500
 
-dt = 0.01
+dt = 0.05
 origin = np.array([250, 400])
 
 m1 = 1
@@ -293,48 +293,30 @@ def immediateCost(X, U):
     dof = U.shape[0]
     num_states = X.shape[0]
 
-    #X_diff = np.zeros(2)
-    #jointPos = forwardKinematics(l1, X[0], l2, X[1], [0, 0], False)
-    #actualPos = jointPos[1,:]
-    #X_diff[0] = (actualPos[0] - desiredPos[0])
-    #X_diff[1] = (actualPos[1] - desiredPos[1])
+    l = (0.5 * np.transpose(U) @ R @ U) + calcStateCost(X)
 
-    #X_diff = np.zeros(4)
-    ## States 1 and 2 are difference from a desired joint angle
-    #X_diff[0] = (X[0] - desiredState[0])
-    #X_diff[1] = (X[1] - desiredState[1])
+    l_x = np.zeros((4))
+    l_xx = np.zeros((4, 4))
 
-    #if(X_diff[0] > PI):
-    #    X_diff[0] = (2 * PI) - X_diff[0]
 
-    #if(X_diff[1] > PI):
-    #    X_diff[1] = (2 * PI) - X_diff[1]
+    eps = 1e-5
+    l_x = calcFirstOrderCostChange(X, eps)
 
-    #if(X_diff[0] < -PI):
-    #    X_diff[0] = (-2 * PI) - X_diff[0]
+    for i in range(num_states):
 
-    #if(X_diff[1] < -PI):
-    #    X_diff[1] = (-2 * PI) - X_diff[1]
+        incX = X.copy()
+        decX = X.copy()
 
-    ## States 3 and 4 are velocity and we want these to end at 0
-    #X_diff[2] = X[2]
-    #X_diff[3] = X[3]
+        incX[i] += eps 
+        decX[i] -= eps 
 
-    ## Instant state cost = 0.5X_t*Q*X + 0.5U_t*R*U
-    #l = (0.5 * np.transpose(X_diff) @ Q @ X_diff) + (0.5 * np.transpose(U) @ R @ U)
+        incXCost = calcFirstOrderCostChange(incX, eps)
+        decXCost = calcFirstOrderCostChange(decX, eps)
 
-    #if(l > 400):
-    #    a = 1
-    
-    #l_x = Q @ X_diff
-    #l_xx = Q
-    #l_u = R @ U
-    #l_uu = R
-    #l_ux = np.zeros((dof, num_states))
+        l_xx[:,i] = (incXCost - decXCost) / (2 * eps)
 
-    l = (0.5 * np.transpose(U) @ R @ U)
-    l_x = np.zeros(num_states)
-    l_xx = np.zeros((num_states, num_states))
+    #l_x = np.zeros(num_states)
+    #l_xx = np.zeros((num_states, num_states))
     l_u = R @ U
     l_uu = R
     l_ux = np.zeros((dof, num_states))
@@ -347,46 +329,22 @@ def terminalCost(X):
     
     num_states = X.shape[0]
 
-
-    #X_diff = np.zeros(4)
-    ## States 1 and 2 are difference from a desired joint angle
-    #X_diff[0] = (X[0] - desiredState[0])
-    #X_diff[1] = (X[1] - desiredState[1])
-    ## States 3 and 4 are velocity and we want these to end at 0
-    #X_diff[2] = X[2]
-    #X_diff[3] = X[3]
-
-    #num_states = X.shape[0]
-    #l_x = np.zeros((num_states))
-    #l_xx = np.zeros((num_states, num_states))
-
-    #l =  50 * (0.5 * np.transpose(X_diff) @ Q @ X_diff)
-    #l_x = 25 * Q @ X_diff
-    #l_xx = 25 * Q
-
-    #calculate current end effector position 
-    
-    l = calcTerminalCost(X)
+    l = calcStateCost(X)
     l_x = np.zeros((4))
     l_xx = np.zeros((4, 4))
     
 
-    eps = 1e-1
-    #add, add, minus, minus
+    eps = 1e-4
     
     l_x = calcFirstOrderCostChange(X, eps)
 
     for i in range(num_states):
 
         incX = X.copy()
-        incX2 = X.copy()
         decX = X.copy()
-        decX2 = X.copy()
 
         incX[i] += eps 
-        incX2[i] += (2 * eps)
         decX[i] -= eps 
-        decX2[i] -= (2 * eps)
 
         incXCost = calcFirstOrderCostChange(incX, eps)
         decXCost = calcFirstOrderCostChange(decX, eps)
@@ -409,15 +367,15 @@ def calcFirstOrderCostChange(X, eps):
         incX[i] += eps 
         decX[i] -= eps 
 
-        incXCost = calcTerminalCost(incX)
-        decXCost = calcTerminalCost(decX)
+        incXCost = calcStateCost(incX)
+        decXCost = calcStateCost(decX)
 
         l_x[i] = (incXCost - decXCost) / (2 * eps)
 
 
     return l_x
 
-def calcTerminalCost(X):
+def calcStateCost(X):
     global desiredPos
     global l1, l2
 
