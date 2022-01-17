@@ -15,7 +15,7 @@ m1 = 1
 l1 = 1
 m2 = 1
 l2 = 0.7
-gravity = 0.01
+gravity = 1
 j1 = 1 
 j2 = 1
 
@@ -242,11 +242,11 @@ def simulateDynamicsOneTimeStep(X, U):
     MInv = np.linalg.inv(M)
 
     UConstrained = U.copy()
-    #for i in range(dof):
-    #    if(UConstrained[i] > 100):
-    #        UConstrained[i] = 100
-    #    if(UConstrained[i] < -100):
-    #        UConstrained[i] = -100
+    for i in range(dof):
+        if(UConstrained[i] > 100):
+            UConstrained[i] = 100
+        if(UConstrained[i] < -100):
+            UConstrained[i] = -100
 
     
     angularAccel = MInv @ (UConstrained - C - g)
@@ -318,14 +318,13 @@ def terminalCost(X):
     global desiredState
     
     num_states = X.shape[0]
-    posFactor = 0
-    velFactor = 0
+    posFactor = 1
+    velFactor = 1
 
     l = calcStateCost(X, posFactor, velFactor)
     l_x = np.zeros((4))
     l_xx = np.zeros((4, 4))
     
-
     eps = 1e-4
     
     l_x = calcFirstOrderCostChange(X, eps, posFactor, velFactor)
@@ -342,8 +341,6 @@ def terminalCost(X):
         decXCost = calcFirstOrderCostChange(decX, eps, posFactor, velFactor)
 
         l_xx[:,i] = (incXCost - decXCost) / (2 * eps)
-
-
 
     # Final cost only requires these three values
     return l, l_x, l_xx
@@ -481,19 +478,25 @@ def ilqr(X0, U):
             # Calculate terminal cost (maybe heavy penalties for nopt reaching goal state
         l[-1], l_x[-1], l_xx[-1] = terminalCost(X[-1])
 
-        V = l[-1].copy() # value function
-        V_x = l_x[-1].copy() # dV / dx
-        V_xx = l_xx[-1].copy() # d^2 V / dx^2
-        k = np.zeros((tN, dof)) # feedforward modification
-        K = np.zeros((tN, dof, num_states)) # feedback gain
+        
+
+        f_xx = np.zeros((4, 4))
+        f_xu = np.zeros((4, 2))
 
         betterCostFound = False
         while(not betterCostFound):
             # Time to optimise our control sequence 
             #Set Value function equal to terminal cost function
             # initialise other matrices, V_x, V_xx, k , K
+            V = l[-1].copy() # value function
+            V_x = l_x[-1].copy() # dV / dx
+            V_xx = l_xx[-1].copy() # d^2 V / dx^2
+            k = np.zeros((tN, dof)) # feedforward modification
+            K = np.zeros((tN, dof, num_states)) # feedback gain
+            if i == 20:
+                a = 1
             for t in range(tN-2, -1, -1):
-                #NOTE: we're working backwards, so V_x = V_x[t+1] = V'_x
+            #NOTE: we're working backwards, so V_x = V_x[t+1] = V'_x
 
                 Q_x = l_x[t] + np.dot(f_x[t].T, V_x) 
                 Q_u = l_u[t] + np.dot(f_u[t].T, V_x)
@@ -501,6 +504,11 @@ def ilqr(X0, U):
                 # NOTE: last term for Q_xx, Q_uu, and Q_ux is vector / tensor product
                 # but also note f_xx = f_uu = f_ux = 0 so they're all 0 anyways.
                 
+                #Q_xx = l_xx[t] + np.dot(f_x[t].T, np.dot(V_xx, f_x[t])) 
+                #Q_ux = l_ux[t] + np.dot(f_u[t].T, np.dot(V_xx, f_x[t]))
+
+                #Q_uu = l_uu[t] + np.dot(f_u[t].T, np.dot(V_xx, f_u[t]))
+
                 Q_xx = l_xx[t] + np.dot(f_x[t].T, np.dot(V_xx, f_x[t])) 
                 Q_ux = l_ux[t] + np.dot(f_u[t].T, np.dot(V_xx, f_x[t]))
 
@@ -605,6 +613,8 @@ def ilqr(X0, U):
                                                             np.log(lamb)))
                     optimisationFinished = True
                     break
+
+            
     return U
 
 def calcAngleDiffConstrained(X, Xnew):
