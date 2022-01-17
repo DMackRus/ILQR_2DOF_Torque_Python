@@ -25,13 +25,13 @@ lamb = 1
 lambFactor = 10
 lambMax = 10000
 
-desiredPos = np.array((0.5, 0.5))
+desiredPos = np.array((0, 1.6))
 desiredState = np.zeros((2))
 
 scaling = 100
 
 #4x4 Matrix
-Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
 
 R = np.array([[0, 0], [0, 0]])
 
@@ -51,7 +51,7 @@ def main():
     # State = [theta1, theta2, theta1dot, theta2dot]
     # 4x1 Matrix
     X = np.zeros((numIterations, 4))
-    X0 = np.array([0.524, 0.35, 0, 0])
+    X0 = np.array([2, 0.35, 0, 0])
     invKin =  inverseKinematics(l1, l2, desiredPos[0], desiredPos[1])
     desiredState = invKin[1]
 
@@ -59,7 +59,7 @@ def main():
 
     testX0 = np.array([PI/2, PI/2])
     testX1 = np.array([3*PI/4, PI])
-    anglediff = calcAngleDiffConstrained(testX1, testX0)
+    #anglediff = calcAngleDiffConstrained(testX1, testX0)
     a = 1
 
     #while(currentIteration < numIterations):
@@ -242,11 +242,11 @@ def simulateDynamicsOneTimeStep(X, U):
     MInv = np.linalg.inv(M)
 
     UConstrained = U.copy()
-    for i in range(dof):
-        if(UConstrained[i] > 100):
-            UConstrained[i] = 100
-        if(UConstrained[i] < -100):
-            UConstrained[i] = -100
+    #for i in range(dof):
+    #    if(UConstrained[i] > 100):
+    #        UConstrained[i] = 100
+    #    if(UConstrained[i] < -100):
+    #        UConstrained[i] = -100
 
     
     angularAccel = MInv @ (UConstrained - C - g)
@@ -271,17 +271,6 @@ def simulateDynamicsOneTimeStep(X, U):
     Xnext[0] = X[0] + (tempCopy[2] * dt)
     Xnext[1] = X[1] + (tempCopy[3] * dt)
 
-    # Constraina ngles between 0 and 2 pi
-    #if(Xnext[0] > 2* PI):
-    #    Xnext[0] = Xnext[0] - 2*PI
-    #if(Xnext[0] < 0):
-    #    Xnext[0] = Xnext[0] + 2*PI
-
-    #if(Xnext[1] > 2* PI):
-    #    Xnext[1] = Xnext[1] - 2*PI
-    #if(Xnext[1] < 0):
-    #    Xnext[1] = Xnext[1] + 2*PI
-
     Xdot = (Xnext - X) / dt
 
     return Xnext, Xdot
@@ -293,7 +282,8 @@ def immediateCost(X, U):
     dof = U.shape[0]
     num_states = X.shape[0]
 
-    l = (0.5 * np.transpose(U) @ R @ U) + calcStateCost(X)
+    inter = (0.5 * np.transpose(U) @ R @ U)
+    l = inter + calcStateCost(X)
 
     l_x = np.zeros((4))
     l_xx = np.zeros((4, 4))
@@ -329,7 +319,7 @@ def terminalCost(X):
     
     num_states = X.shape[0]
 
-    l = calcStateCost(X)
+    l = calcTermStateCost(X)
     l_x = np.zeros((4))
     l_xx = np.zeros((4, 4))
     
@@ -367,8 +357,8 @@ def calcFirstOrderCostChange(X, eps):
         incX[i] += eps 
         decX[i] -= eps 
 
-        incXCost = calcStateCost(incX)
-        decXCost = calcStateCost(decX)
+        incXCost = calcTermStateCost(incX)
+        decXCost = calcTermStateCost(decX)
 
         l_x[i] = (incXCost - decXCost) / (2 * eps)
 
@@ -379,8 +369,30 @@ def calcStateCost(X):
     global desiredPos
     global l1, l2
 
+    posFactor = 1
+    velFactor = 1
+
+    endEffectorPos = np.zeros((2))
+    xyErr = np.zeros((2))
+    velErr = np.zeros((2))
+    endEffectorPos[0] = (l1 * cos(X[0])) + (l2*cos(X[0] + X[1]))
+    endEffectorPos[1] = (l1 * sin(X[0])) + (l2*sin(X[0] + X[1]))
+
+    xyErr[0] = endEffectorPos[0] - desiredPos[0]
+    xyErr[1] = endEffectorPos[1] - desiredPos[1]
+
+    #xyErr = endEffectorPos - desiredPos[0:1]
+    velErr = X[2:4]
+    l = (posFactor * np.sum(xyErr**2)) + (velFactor * np.sum(velErr**2))
+
+    return l
+
+def calcTermStateCost(X):
+    global desiredPos
+    global l1, l2
+
     posFactor = 10
-    velFactor = 0.1
+    velFactor = 10
 
     endEffectorPos = np.zeros((2))
     xyErr = np.zeros((2))
@@ -440,9 +452,10 @@ def ilqr(X0, U):
     global lambFactor
     global lambMax
     global dt
+    global l1, l2
     overOldCostLast = False
     origin = np.array([0,0])
-    epsConverge = 0.00001
+    epsConverge = 0.0001
 
     tN = U.shape[0] # number of time steps
     dof = 2 # number of degrees of freedom of plant 
@@ -471,7 +484,7 @@ def ilqr(X0, U):
             # Calculate A and B via finitie differencing
             # Calculate f_x, f_u using A and B(linearied approximation to dynamics with respect to state and controls) 
             A, B = finiteDifferencing(X[t], U[t])
-            f_x[t] = np.eye(num_states) + A * dt
+            f_x[t] = np.eye(num_states) + (A * dt)
             #f_x[t] = A * dt
             f_u[t] = B * dt
 
@@ -554,8 +567,8 @@ def ilqr(X0, U):
             stateFeedback = np.zeros((4))
             stateFeedback[0] = angleDiff[0]
             stateFeedback[1] = angleDiff[1]
-            stateFeedback[2] = xnew[2]
-            stateFeedback[3] = xnew[3]
+            stateFeedback[2] = X[t, 2] - xnew[2]
+            stateFeedback[3] = X[t, 3] - xnew[3]
 
             #stateFeedback = np.concatenate(angleDiff, xnew[2:4])
             intermediate = np.dot(K[t], stateFeedback)
@@ -572,11 +585,12 @@ def ilqr(X0, U):
         Xnew, newCost = forwardPass(X0, Unew)
         print("---------------------------------------------")
         print("terminal cost is")
-        print(terminalCost(X[-1]))
-        print("terminal state is")
-        print(X[-1])
-        print("terminal diff is")
-        print(diff(X[-1]))
+        print(terminalCost(Xnew[-1].copy()))
+        print("terminal angle1: " + str(Xnew[-1,0]) + " angle2: " + str(Xnew[-1,1]))
+        print("terminal position is")
+        print(endEffectPos(l1, l2, Xnew[-1,0], Xnew[-1,1]))
+        print("terminal velocity is")
+        print(Xnew[-1, 2:4])
         print("old cost ")
         print(oldCost)
         print("new cost")
@@ -602,7 +616,7 @@ def ilqr(X0, U):
             
 
             # check to see if update is small enough to exit
-            if i > 300 and ((abs(oldCost-newCost)/newCost) < epsConverge):
+            if i > 0 and ((abs(oldCost-newCost)/newCost) < epsConverge):
                 print("Converged at iteration = %d; Cost = %.4f;"%(i,newCost) + 
                         " logLambda = %.1f"%np.log(lamb))
                 break
@@ -670,6 +684,13 @@ def constrainAngleBetween0and2PI(angle):
 
     return angle
 
+def endEffectPos(l1, l2, theta1, theta2):
+    endEffectorPos = np.zeros((2))
+
+    endEffectorPos[0] = (l1*cos(theta1)) + (l2*cos(theta1 + theta2))
+    endEffectorPos[1] = (l1*sin(theta1)) + (l2*sin(theta1 + theta2))
+
+    return endEffectorPos
 
 def diff(X):
     global desiredState
