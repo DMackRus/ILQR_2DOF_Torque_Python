@@ -19,13 +19,13 @@ gravity = 0.01
 j1 = 1 
 j2 = 1
 
-runTime = 5
+runTime = 8
 numIterations = int(runTime / dt)
 lamb = 1
 lambFactor = 10
-lambMax = 10000
+lambMax = 1000000
 
-desiredPos = np.array((0, 1.6))
+desiredPos = np.array((-1.6, 0))
 desiredState = np.zeros((2))
 
 scaling = 100
@@ -281,16 +281,18 @@ def immediateCost(X, U):
     global l1, l2
     dof = U.shape[0]
     num_states = X.shape[0]
+    posFactor = 10
+    velFactor = 1
 
     inter = (0.5 * np.transpose(U) @ R @ U)
-    l = inter + calcStateCost(X)
+    l = inter + calcStateCost(X, posFactor, velFactor)
 
     l_x = np.zeros((4))
     l_xx = np.zeros((4, 4))
 
 
-    eps = 1e-5
-    l_x = calcFirstOrderCostChange(X, eps)
+    eps = 1e-6
+    l_x = calcFirstOrderCostChange(X, eps, posFactor, velFactor)
 
     for i in range(num_states):
 
@@ -300,13 +302,11 @@ def immediateCost(X, U):
         incX[i] += eps 
         decX[i] -= eps 
 
-        incXCost = calcFirstOrderCostChange(incX, eps)
-        decXCost = calcFirstOrderCostChange(decX, eps)
+        incXCost = calcFirstOrderCostChange(incX, eps, posFactor, velFactor)
+        decXCost = calcFirstOrderCostChange(decX, eps, posFactor, velFactor)
 
         l_xx[:,i] = (incXCost - decXCost) / (2 * eps)
 
-    #l_x = np.zeros(num_states)
-    #l_xx = np.zeros((num_states, num_states))
     l_u = R @ U
     l_uu = R
     l_ux = np.zeros((dof, num_states))
@@ -318,15 +318,17 @@ def terminalCost(X):
     global desiredState
     
     num_states = X.shape[0]
+    posFactor = 0
+    velFactor = 0
 
-    l = calcTermStateCost(X)
+    l = calcStateCost(X, posFactor, velFactor)
     l_x = np.zeros((4))
     l_xx = np.zeros((4, 4))
     
 
     eps = 1e-4
     
-    l_x = calcFirstOrderCostChange(X, eps)
+    l_x = calcFirstOrderCostChange(X, eps, posFactor, velFactor)
 
     for i in range(num_states):
 
@@ -336,8 +338,8 @@ def terminalCost(X):
         incX[i] += eps 
         decX[i] -= eps 
 
-        incXCost = calcFirstOrderCostChange(incX, eps)
-        decXCost = calcFirstOrderCostChange(decX, eps)
+        incXCost = calcFirstOrderCostChange(incX, eps, posFactor, velFactor)
+        decXCost = calcFirstOrderCostChange(decX, eps, posFactor, velFactor)
 
         l_xx[:,i] = (incXCost - decXCost) / (2 * eps)
 
@@ -346,7 +348,7 @@ def terminalCost(X):
     # Final cost only requires these three values
     return l, l_x, l_xx
 
-def calcFirstOrderCostChange(X, eps):
+def calcFirstOrderCostChange(X, eps, posFactor, velFactor):
     l_x = np.zeros((4))
     num_states = X.shape[0]
 
@@ -357,20 +359,17 @@ def calcFirstOrderCostChange(X, eps):
         incX[i] += eps 
         decX[i] -= eps 
 
-        incXCost = calcTermStateCost(incX)
-        decXCost = calcTermStateCost(decX)
+        incXCost = calcStateCost(incX, posFactor, velFactor)
+        decXCost = calcStateCost(decX, posFactor, velFactor)
 
         l_x[i] = (incXCost - decXCost) / (2 * eps)
 
 
     return l_x
 
-def calcStateCost(X):
+def calcStateCost(X, posFactor, velFactor):
     global desiredPos
     global l1, l2
-
-    posFactor = 1
-    velFactor = 1
 
     endEffectorPos = np.zeros((2))
     xyErr = np.zeros((2))
@@ -381,29 +380,6 @@ def calcStateCost(X):
     xyErr[0] = endEffectorPos[0] - desiredPos[0]
     xyErr[1] = endEffectorPos[1] - desiredPos[1]
 
-    #xyErr = endEffectorPos - desiredPos[0:1]
-    velErr = X[2:4]
-    l = (posFactor * np.sum(xyErr**2)) + (velFactor * np.sum(velErr**2))
-
-    return l
-
-def calcTermStateCost(X):
-    global desiredPos
-    global l1, l2
-
-    posFactor = 10
-    velFactor = 10
-
-    endEffectorPos = np.zeros((2))
-    xyErr = np.zeros((2))
-    velErr = np.zeros((2))
-    endEffectorPos[0] = (l1 * cos(X[0])) + (l2*cos(X[0] + X[1]))
-    endEffectorPos[1] = (l1 * sin(X[0])) + (l2*sin(X[0] + X[1]))
-
-    xyErr[0] = endEffectorPos[0] - desiredPos[0]
-    xyErr[1] = endEffectorPos[1] - desiredPos[1]
-
-    #xyErr = endEffectorPos - desiredPos[0:1]
     velErr = X[2:4]
     l = (posFactor * np.sum(xyErr**2)) + (velFactor * np.sum(velErr**2))
 
@@ -417,7 +393,7 @@ def finiteDifferencing(X, U):
     A = np.zeros((num_states, num_states))
     B = np.zeros((num_states, dof))
 
-    eps = 1e-5
+    eps = 1e-6
     for ii in range(num_states):
         inc_x = X.copy()
         inc_x[ii] += eps 
@@ -455,14 +431,19 @@ def ilqr(X0, U):
     global l1, l2
     overOldCostLast = False
     origin = np.array([0,0])
-    epsConverge = 0.0001
+    epsConverge = 0.00001
+    optimisationFinished = False
 
     tN = U.shape[0] # number of time steps
     dof = 2 # number of degrees of freedom of plant 
     num_states = 4 # number of states (position and velocity)
 
     X, oldCost = forwardPass(X0, U)
+
     for i in range(maxIterations):
+
+        if optimisationFinished == True:
+            break
 
         # Initiialise all relevant partial differentation matrtices for all time steps 
         f_x = np.zeros((tN, num_states, num_states)) # df / dx
@@ -485,7 +466,6 @@ def ilqr(X0, U):
             # Calculate f_x, f_u using A and B(linearied approximation to dynamics with respect to state and controls) 
             A, B = finiteDifferencing(X[t], U[t])
             f_x[t] = np.eye(num_states) + (A * dt)
-            #f_x[t] = A * dt
             f_u[t] = B * dt
 
             # calculate l, l_x, l_xx, l_u, l_uu, l_ux
@@ -507,134 +487,124 @@ def ilqr(X0, U):
         k = np.zeros((tN, dof)) # feedforward modification
         K = np.zeros((tN, dof, num_states)) # feedback gain
 
-         # Time to optimise our control sequence 
-        #Set Value function equal to terminal cost function
-        # initialise other matrices, V_x, V_xx, k , K
-        for t in range(tN-2, -1, -1):
-            #NOTE: we're working backwards, so V_x = V_x[t+1] = V'_x
+        betterCostFound = False
+        while(not betterCostFound):
+            # Time to optimise our control sequence 
+            #Set Value function equal to terminal cost function
+            # initialise other matrices, V_x, V_xx, k , K
+            for t in range(tN-2, -1, -1):
+                #NOTE: we're working backwards, so V_x = V_x[t+1] = V'_x
 
-            # 4a) Q_x = l_x + np.dot(f_x^T, V'_x)
-            Q_x = l_x[t] +  f_x[t].T @ V_x
-            Q_x = l_x[t] + np.dot(f_x[t].T, V_x) 
-            # 4b) Q_u = l_u + np.dot(f_u^T, V'_x)
-            Q_u = l_u[t] + np.dot(f_u[t].T, V_x)
-            Q_u = l_u[t] + f_u[t].T @ V_x
+                Q_x = l_x[t] + np.dot(f_x[t].T, V_x) 
+                Q_u = l_u[t] + np.dot(f_u[t].T, V_x)
 
-            # NOTE: last term for Q_xx, Q_uu, and Q_ux is vector / tensor product
-            # but also note f_xx = f_uu = f_ux = 0 so they're all 0 anyways.
+                # NOTE: last term for Q_xx, Q_uu, and Q_ux is vector / tensor product
+                # but also note f_xx = f_uu = f_ux = 0 so they're all 0 anyways.
                 
-            # 4c) Q_xx = l_xx + np.dot(f_x^T, np.dot(V'_xx, f_x)) + np.einsum(V'_x, f_xx)
-            Q_xx = l_xx[t] + np.dot(f_x[t].T, np.dot(V_xx, f_x[t])) 
-            # 4d) Q_ux = l_ux + np.dot(f_u^T, np.dot(V'_xx, f_x)) + np.einsum(V'_x, f_ux)
-            Q_ux = l_ux[t] + np.dot(f_u[t].T, np.dot(V_xx, f_x[t]))
-            # 4e) Q_uu = l_uu + np.dot(f_u^T, np.dot(V'_xx, f_u)) + np.einsum(V'_x, f_uu)
+                Q_xx = l_xx[t] + np.dot(f_x[t].T, np.dot(V_xx, f_x[t])) 
+                Q_ux = l_ux[t] + np.dot(f_u[t].T, np.dot(V_xx, f_x[t]))
 
-            Q_uu = l_uu[t] + np.dot(f_u[t].T, np.dot(V_xx, f_u[t]))
+                Q_uu = l_uu[t] + np.dot(f_u[t].T, np.dot(V_xx, f_u[t]))
 
-            # Calculate Q_uu^-1 with regularization term set by 
-            # Levenberg-Marquardt heuristic (at end of this loop)
-            Q_uu_evals, Q_uu_evecs = np.linalg.eig(Q_uu)
-            Q_uu_evals[Q_uu_evals < 0] = 0.0
-            Q_uu_evals += lamb
-            Q_uu_inv = np.dot(Q_uu_evecs, 
-                    np.dot(np.diag(1.0/Q_uu_evals), Q_uu_evecs.T))
+                # Calculate Q_uu^-1 with regularization term set by 
+                # Levenberg-Marquardt heuristic (at end of this loop)
+                Q_uu_evals, Q_uu_evecs = np.linalg.eig(Q_uu)
+                Q_uu_evals[Q_uu_evals < 0] = 0.0
+                Q_uu_evals += lamb
+                Q_uu_inv = np.dot(Q_uu_evecs, np.dot(np.diag(1.0/Q_uu_evals), Q_uu_evecs.T))
 
-            # 5b) k = -np.dot(Q_uu^-1, Q_u)
-            k[t] = -np.dot(Q_uu_inv, Q_u)
-            # 5b) K = -np.dot(Q_uu^-1, Q_ux)
-            K[t] = -np.dot(Q_uu_inv, Q_ux)
+                k[t] = -np.dot(Q_uu_inv, Q_u)
+                K[t] = -np.dot(Q_uu_inv, Q_ux)
 
-            # 6a) DV = -.5 np.dot(k^T, np.dot(Q_uu, k))
-            # 6b) V_x = Q_x - np.dot(K^T, np.dot(Q_uu, k))
-            V_x = Q_x - np.dot(K[t].T, np.dot(Q_uu, k[t]))
-            # 6c) V_xx = Q_xx - np.dot(-K^T, np.dot(Q_uu, K))
-            V_xx = Q_xx - np.dot(K[t].T, np.dot(Q_uu, K[t]))
+                V_x = Q_x - np.dot(K[t].T, np.dot(Q_uu, k[t]))
+                V_xx = Q_xx - np.dot(K[t].T, np.dot(Q_uu, K[t]))
 
-        Unew = np.zeros((tN, dof))
-        # calculate the optimal change to the control trajectory
-        xnew = X[0].copy() # 7a)
+            Unew = np.zeros((tN, dof))
+            # calculate the optimal change to the control trajectory
+            xnew = X[0].copy() # 7a)
 
-        for t in range(tN - 1): 
-            # use feedforward (k) and feedback (K) gain matrices 
-            # calculated from our value function approximation
-            # to take a stab at the optimal control signal
+            for t in range(tN - 1): 
+                # use feedforward (k) and feedback (K) gain matrices 
+                # calculated from our value function approximation
+                # to take a stab at the optimal control signal
 
-            #testX = X[t].copy
-            #testXnew = 
-            if(t == 60):
-                a = 1
-            angleDiff = calcAngleDiffConstrained(X[t].copy(), xnew.copy())
-            stateFeedback = np.zeros((4))
-            stateFeedback[0] = angleDiff[0]
-            stateFeedback[1] = angleDiff[1]
-            stateFeedback[2] = X[t, 2] - xnew[2]
-            stateFeedback[3] = X[t, 3] - xnew[3]
+                #testX = X[t].copy
+                #testXnew = 
+                if(t == 60):
+                    a = 1
+                angleDiff = calcAngleDiffConstrained(X[t].copy(), xnew.copy())
+                stateFeedback = np.zeros((4))
+                stateFeedback[0] = angleDiff[0]
+                stateFeedback[1] = angleDiff[1]
+                stateFeedback[2] = xnew[2] - X[t, 2]
+                stateFeedback[3] = xnew[3] - X[t, 3]
 
-            #stateFeedback = np.concatenate(angleDiff, xnew[2:4])
-            intermediate = np.dot(K[t], stateFeedback)
+                #stateFeedback = np.concatenate(angleDiff, xnew[2:4])
+                intermediate = np.dot(K[t], stateFeedback)
 
-            # Add an alpha term between 0 and 1 for lower case k
-            Unew[t] = U[t] + k[t] + intermediate # 7b)
-            # given this u, find our next state
-            xnew,_ = simulateDynamicsOneTimeStep(xnew, Unew[t])
-            if t > 100:
-                a = 1
-            #print("made it past time: " + str(t))
+                # Add an alpha term between 0 and 1 for lower case k
+                Unew[t] = U[t] + k[t] + intermediate # 7b)
+                # given this u, find our next state
+                xnew,_ = simulateDynamicsOneTimeStep(xnew, Unew[t])
+                if t > 100:
+                    a = 1
+                #print("made it past time: " + str(t))
 
-        # evaluate the new trajectory 
-        Xnew, newCost = forwardPass(X0, Unew)
-        print("---------------------------------------------")
-        print("terminal cost is")
-        print(terminalCost(Xnew[-1].copy()))
-        print("terminal angle1: " + str(Xnew[-1,0]) + " angle2: " + str(Xnew[-1,1]))
-        print("terminal position is")
-        print(endEffectPos(l1, l2, Xnew[-1,0], Xnew[-1,1]))
-        print("terminal velocity is")
-        print(Xnew[-1, 2:4])
-        print("old cost ")
-        print(oldCost)
-        print("new cost")
-        print(newCost)
-        print("current lambda")
-        print(lamb)
-        #print("lamda factor")
-        #print(lambFactor)
-        print("--------------------------------------------------")
+            # evaluate the new trajectory 
+            Xnew, newCost = forwardPass(X0, Unew)
+            print("---------------------------------------------")
+            print("terminal cost is")
+            print(terminalCost(Xnew[-1].copy()))
+            print("terminal angle1: " + str(Xnew[-1,0]) + " angle2: " + str(Xnew[-1,1]))
+            print("terminal position is")
+            print(endEffectPos(l1, l2, Xnew[-1,0], Xnew[-1,1]))
+            print("terminal velocity is")
+            print(Xnew[-1, 2:4])
+            print("old cost ")
+            print(oldCost)
+            print("new cost")
+            print(newCost)
+            print("current lambda")
+            print(lamb)
+            print("--------------------------------------------------")
 
-        # Levenberg-Marquardt heuristic
-        if newCost < oldCost: 
-            # decrease lambda (get closer to Newton's method)
-            if lamb > 1e-30:
-                lamb /= lambFactor
-            if(overOldCostLast == True):
-                pass
-                #lambFactor -= 0.1
-            overOldCostLast = False
+            # Levenberg-Marquardt heuristic
+            if newCost < oldCost: 
+                # decrease lambda (get closer to Newton's method)
+                betterCostFound = True
+                if lamb > 1e-30:
+                    lamb /= lambFactor
+                if(overOldCostLast == True):
+                    pass
+                    #lambFactor -= 0.1
+                overOldCostLast = False
 
-            X = np.copy(Xnew) # update trajectory 
-            U = np.copy(Unew) # update control signal
+                X = np.copy(Xnew) # update trajectory 
+                U = np.copy(Unew) # update control signal
             
 
-            # check to see if update is small enough to exit
-            if i > 0 and ((abs(oldCost-newCost)/newCost) < epsConverge):
-                print("Converged at iteration = %d; Cost = %.4f;"%(i,newCost) + 
-                        " logLambda = %.1f"%np.log(lamb))
-                break
-            oldCost = np.copy(newCost)
+                # check to see if update is small enough to exit
+                if i > 0 and ((abs(oldCost-newCost)/newCost) < epsConverge):
+                    print("Converged at iteration = %d; Cost = %.4f;"%(i,newCost) + 
+                            " logLambda = %.1f"%np.log(lamb))
+                    optimisationFinished = True
+                    break
+                oldCost = np.copy(newCost)
 
-        else: 
-            # increase lambda (get closer to gradient descent)
-            lamb *= lambFactor
-            if(overOldCostLast == False):
-                pass
-                #lambFactor -= 0.1
-            overOldCostLast = True
-            # print("cost: %.4f, increasing lambda to %.4f")%(cost, lamb)
-            if lamb > lambMax: 
-                print("lambda > max_lambda at iteration = %d;"%i + 
-                    " Cost = %.4f; logLambda = %.1f"%(oldCost, 
-                                                        np.log(lamb)))
-                break
+            else: 
+                # increase lambda (get closer to gradient descent)
+                lamb *= lambFactor
+                if(overOldCostLast == False):
+                    pass
+                    #lambFactor -= 0.1
+                overOldCostLast = True
+                # print("cost: %.4f, increasing lambda to %.4f")%(cost, lamb)
+                if lamb > lambMax: 
+                    print("lambda > max_lambda at iteration = %d;"%i + 
+                        " Cost = %.4f; logLambda = %.1f"%(oldCost, 
+                                                            np.log(lamb)))
+                    optimisationFinished = True
+                    break
     return U
 
 def calcAngleDiffConstrained(X, Xnew):
