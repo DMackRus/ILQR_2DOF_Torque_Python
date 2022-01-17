@@ -2,30 +2,31 @@ from tkinter import *
 from math import *
 import numpy as np
 import time
+import matplotlib.pyplot as plt
 
 PI = 3.14159265
 
 canvas_width = 500
 canvas_height = 500
 
-dt = 0.05
+dt = 0.02
 origin = np.array([250, 400])
 
 m1 = 1
 l1 = 1
 m2 = 1
 l2 = 0.7
-gravity = 1
+gravity = 10
 j1 = 1 
 j2 = 1
 
-runTime = 8
+runTime = 5
 numIterations = int(runTime / dt)
 lamb = 1
 lambFactor = 10
 lambMax = 1000000
 
-desiredPos = np.array((-1.6, 0))
+desiredPos = np.array((1.4, 0))
 desiredState = np.zeros((2))
 
 scaling = 100
@@ -33,12 +34,20 @@ scaling = 100
 #4x4 Matrix
 Q = np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
 
-R = np.array([[0, 0], [0, 0]])
+R = np.array([[0.01, 0], [0, 0.01]])
 
 master = Tk()
 master.title( "ILQR - 2 Link Planar Arm" )
 canvas = Canvas(master, width=canvas_width, height=canvas_height)
 canvas.pack(expand = YES, fill = BOTH)
+
+#line1, = ax1.plot(xAxis, costVals, 'b-')
+
+
+
+
+#ax = fig.add_subplot(111)
+#line1, = ax.plot(x, y, 'r-') # Returns a tuple of line objects, thus the comma
 
 def main():
     global dt 
@@ -51,18 +60,14 @@ def main():
     # State = [theta1, theta2, theta1dot, theta2dot]
     # 4x1 Matrix
     X = np.zeros((numIterations, 4))
+    # theta1, theta2, theta1 dot, theta 2 dot, theta 1 dot dot, theta 2 dot dot
     X0 = np.array([2, 0.35, 0, 0])
     invKin =  inverseKinematics(l1, l2, desiredPos[0], desiredPos[1])
     desiredState = invKin[1]
 
     X[0] = X0
 
-    testX0 = np.array([PI/2, PI/2])
-    testX1 = np.array([3*PI/4, PI])
-    #anglediff = calcAngleDiffConstrained(testX1, testX0)
-    a = 1
-
-    #while(currentIteration < numIterations):
+    #while(currentIteration < numIterations - 1):
     #    draw(canvas, [l1, l2], X[currentIteration], origin,desiredState)
     #    master.update_idletasks()
     #    master.update()
@@ -70,32 +75,25 @@ def main():
     #    currentIteration = currentIteration + 1
     #    time.sleep(dt)
     
-    
+    startTime = time.time()
     U = ilqr(X0, U)
+    endTime = time.time()
+    elapsedTime = endTime - startTime
+    print("ilqr took " + str(elapsedTime) + "s")
 
     firstTimeCalc = True
 
     while(1):
 
-        if firstTimeCalc == True:
-            draw(canvas, [l1, l2], X[currentIteration], origin,desiredState)
-            master.update_idletasks()
-            master.update()
-            X[currentIteration+1, :],_ = simulateDynamicsOneTimeStep(X[currentIteration, :], U[currentIteration,:])
-            currentIteration = currentIteration + 1
-            if currentIteration >= numIterations - 1:
-                currentIteration = 0
-                firstTimeCalc = True
-                time.sleep(2)
+        draw(canvas, [l1, l2], X[currentIteration], origin,desiredState)
+        master.update_idletasks()
+        master.update()
+        X[currentIteration+1, :],_ = simulateDynamicsOneTimeStep(X[currentIteration, :], U[currentIteration,:])
+        currentIteration = currentIteration + 1
+        if currentIteration >= numIterations - 1:
+            currentIteration = 0
+            firstTimeCalc = True
 
-        else:
-            draw(stateAngles[currentIteration])
-            master.update_idletasks()
-            master.update()
-            currentIteration = currentIteration + 1
-            if currentIteration >= numIterations - 1:
-                currentIteration = 0
-                time.sleep(2)
         time.sleep(dt)
 
 
@@ -217,6 +215,7 @@ def simulateDynamicsOneTimeStep(X, U):
     global gravity
     global K1, K2, K3, K4
     dof = U.shape[0]
+    numStates = X.shape[0]
 
     # torque = (M(theta) * theta dot dot) + C(theta, theta dot) + g(theta)
     # Initialise matrices
@@ -242,22 +241,25 @@ def simulateDynamicsOneTimeStep(X, U):
     MInv = np.linalg.inv(M)
 
     UConstrained = U.copy()
-    for i in range(dof):
-        if(UConstrained[i] > 100):
-            UConstrained[i] = 100
-        if(UConstrained[i] < -100):
-            UConstrained[i] = -100
+    #for i in range(dof):
+    #    if(UConstrained[i] > 100):
+    #        UConstrained[i] = 100
+    #    if(UConstrained[i] < -100):
+    #        UConstrained[i] = -100
 
     
     angularAccel = MInv @ (UConstrained - C - g)
 
-    Xnext = np.zeros((4))
-    Xdot = np.zeros((4))
+    Xnext = np.zeros((numStates))
+    Xdot = np.zeros((numStates))
+
+    #Xnext[4] = angularAccel[0]
+    #Xnext[5] = angularAccel[1]
             
     # Integrate velocity with acceleration
 
     Xnext[2] = X[2] + (angularAccel[0] * dt)
-    Xnext[3] = X[3] + (angularAccel[1] * dt)
+    Xnext[3] = X[3] + (angularAccel[0] * dt)
 
     for i in range(2):
         if(Xnext[2 + i] >  100):
@@ -283,12 +285,13 @@ def immediateCost(X, U):
     num_states = X.shape[0]
     posFactor = 10
     velFactor = 1
+    accelFactor = 2
 
     inter = (0.5 * np.transpose(U) @ R @ U)
     l = inter + calcStateCost(X, posFactor, velFactor)
 
-    l_x = np.zeros((4))
-    l_xx = np.zeros((4, 4))
+    l_x = np.zeros((num_states))
+    l_xx = np.zeros((num_states, num_states))
 
 
     eps = 1e-6
@@ -318,14 +321,14 @@ def terminalCost(X):
     global desiredState
     
     num_states = X.shape[0]
-    posFactor = 1
-    velFactor = 1
+    posFactor = 100
+    velFactor = 10
 
     l = calcStateCost(X, posFactor, velFactor)
-    l_x = np.zeros((4))
-    l_xx = np.zeros((4, 4))
+    l_x = np.zeros((num_states))
+    l_xx = np.zeros((num_states, num_states))
     
-    eps = 1e-4
+    eps = 1e-6
     
     l_x = calcFirstOrderCostChange(X, eps, posFactor, velFactor)
 
@@ -346,8 +349,8 @@ def terminalCost(X):
     return l, l_x, l_xx
 
 def calcFirstOrderCostChange(X, eps, posFactor, velFactor):
-    l_x = np.zeros((4))
     num_states = X.shape[0]
+    l_x = np.zeros((num_states))
 
     for i in range(num_states):
         incX = X.copy()
@@ -378,6 +381,7 @@ def calcStateCost(X, posFactor, velFactor):
     xyErr[1] = endEffectorPos[1] - desiredPos[1]
 
     velErr = X[2:4]
+
     l = (posFactor * np.sum(xyErr**2)) + (velFactor * np.sum(velErr**2))
 
     return l
@@ -428,12 +432,22 @@ def ilqr(X0, U):
     global l1, l2
     overOldCostLast = False
     origin = np.array([0,0])
-    epsConverge = 0.00001
+    epsConverge = 0.0001
     optimisationFinished = False
+    costGradient = np.zeros((5))
+    costGradientEntries = 0
+
+    #plt.ion()
+    #fig = plt.figure()
+    #ax = fig.add_subplot(111)
+    
+    #costVals = []
+    #xAxis = []
+    #line1, = ax.plot(xAxis, costVals, 'b-')
 
     tN = U.shape[0] # number of time steps
     dof = 2 # number of degrees of freedom of plant 
-    num_states = 4 # number of states (position and velocity)
+    num_states = X0.shape[0] # number of states (position and velocity)
 
     X, oldCost = forwardPass(X0, U)
 
@@ -501,6 +515,12 @@ def ilqr(X0, U):
                 Q_x = l_x[t] + np.dot(f_x[t].T, V_x) 
                 Q_u = l_u[t] + np.dot(f_u[t].T, V_x)
 
+                if i == 88 and t == 71:
+                    a = 1
+
+                if(V_x.any() > 1e+20):
+                    a = 1
+
                 # NOTE: last term for Q_xx, Q_uu, and Q_ux is vector / tensor product
                 # but also note f_xx = f_uu = f_ux = 0 so they're all 0 anyways.
                 
@@ -541,7 +561,7 @@ def ilqr(X0, U):
                 if(t == 60):
                     a = 1
                 angleDiff = calcAngleDiffConstrained(X[t].copy(), xnew.copy())
-                stateFeedback = np.zeros((4))
+                stateFeedback = np.zeros((num_states))
                 stateFeedback[0] = angleDiff[0]
                 stateFeedback[1] = angleDiff[1]
                 stateFeedback[2] = xnew[2] - X[t, 2]
@@ -554,31 +574,36 @@ def ilqr(X0, U):
                 Unew[t] = U[t] + k[t] + intermediate # 7b)
                 # given this u, find our next state
                 xnew,_ = simulateDynamicsOneTimeStep(xnew, Unew[t])
-                if t > 100:
-                    a = 1
-                #print("made it past time: " + str(t))
 
             # evaluate the new trajectory 
             Xnew, newCost = forwardPass(X0, Unew)
-            print("---------------------------------------------")
-            print("terminal cost is")
-            print(terminalCost(Xnew[-1].copy()))
-            print("terminal angle1: " + str(Xnew[-1,0]) + " angle2: " + str(Xnew[-1,1]))
-            print("terminal position is")
-            print(endEffectPos(l1, l2, Xnew[-1,0], Xnew[-1,1]))
-            print("terminal velocity is")
-            print(Xnew[-1, 2:4])
-            print("old cost ")
-            print(oldCost)
-            print("new cost")
-            print(newCost)
-            print("current lambda")
-            print(lamb)
-            print("--------------------------------------------------")
+            
 
             # Levenberg-Marquardt heuristic
             if newCost < oldCost: 
                 # decrease lambda (get closer to Newton's method)
+                #plotCosts(newCost)
+                #numX = len(costVals)
+                #xAxis.append(numX)
+                #costVals.append(newCost)
+                #line1.set_xdata(xAxis)
+                #line1.set_ydata(costVals)
+                #fig.canvas.draw()
+                #fig.canvas.flush_events()
+
+                print("---------------------------------------------")
+                print("terminal cost is")
+                temp = terminalCost(Xnew[-1].copy())
+                print(temp[0])
+                print("terminal position:")
+                print(endEffectPos(l1, l2, Xnew[-1,0], Xnew[-1,1]))
+                print("terminal velocity:")
+                print(Xnew[-1, 2:4])
+                print("new cost")
+                print(newCost)
+                print("current lambda")
+                print(lamb)
+                print("--------------------------------------------------")
                 betterCostFound = True
                 if lamb > 1e-30:
                     lamb /= lambFactor
@@ -589,15 +614,26 @@ def ilqr(X0, U):
 
                 X = np.copy(Xnew) # update trajectory 
                 U = np.copy(Unew) # update control signal
-            
 
-                # check to see if update is small enough to exit
-                if i > 0 and ((abs(oldCost-newCost)/newCost) < epsConverge):
-                    print("Converged at iteration = %d; Cost = %.4f;"%(i,newCost) + 
-                            " logLambda = %.1f"%np.log(lamb))
-                    optimisationFinished = True
-                    break
+                newGrad = abs(newCost-oldCost)
                 oldCost = np.copy(newCost)
+                if(costGradientEntries < 5):
+                    costGradient[costGradientEntries] = newGrad
+                    costGradientEntries += 1
+                else:
+                    for j in range(4):
+                        costGradient[j] = costGradient[j + 1]
+                    costGradient[4] = newGrad
+
+                    avgGrad = np.mean(costGradient)
+                    
+
+                        # check to see if update is small enough to exit
+                    if i > 0 and avgGrad < epsConverge:
+                        print("Converged at iteration = %d; Cost = %.4f;"%(i,newCost) + 
+                                " logLambda = %.1f"%np.log(lamb))
+                        optimisationFinished = True
+                        break
 
             else: 
                 # increase lambda (get closer to gradient descent)
@@ -680,6 +716,26 @@ def diff(X):
     X_diff[1] = (X[1] - desiredState[1])
 
     return X_diff
+
+def plotCosts(newCost):
+    global costVals
+    global fig 
+    global line1
+    global ax1
+
+    costVals.append(newCost)
+
+    numX = len(costVals)
+    xAxis.append(numX)
+
+    ax1.clear()
+    ax1.plot(costVals)
+    fig.show()
+
+    #line1.set_ydata(costVals)
+    #fig.canvas.draw()
+
+
 
 
 main()
